@@ -257,6 +257,9 @@ def looks_like_person_name(value):
     if lower in PERSON_BLOCKLIST:
         return False
 
+    if any(word in PERSON_NON_NAME_WORDS for word in words):
+        return False
+
     words = lower.split()
 
     if not 2 <= len(words) <= 5:
