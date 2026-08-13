@@ -175,7 +175,6 @@ ORG_STRONG_SUFFIXES = (
 ORG_SPECIAL_INDICATORS = (
     "bank of india",
     "bank of",
-    "stock exchange",
     "metal exchange",
     "reserve bank",
     "payments corporation",
@@ -319,6 +318,12 @@ def looks_like_organization(value):
     )
 
     lower = value.casefold()
+    # Reject phrases that start with document terminology.
+    if re.match(r"^the\s+offer\b", lower):
+        return False
+
+    if re.match(r"^the\s+issue\b", lower):
+        return False
 
     # Basic length checks
     if len(value) < 4:

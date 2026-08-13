@@ -33,13 +33,13 @@ class Anonymizer:
                     value
                 )
 
-    def normalize(self, value):
+    clean_original = re.sub(
+        r"\s+",
+        " ",
+        original.strip()
+    )
 
-        return re.sub(
-            r"\s+",
-            " ",
-            value.strip()
-        ).casefold()
+    self.replacements[pii_type][clean_original] = replacement
 
     def load_map(self):
 
