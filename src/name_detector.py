@@ -84,7 +84,32 @@ PERSON_NON_NAME_WORDS = {
     "foundation",
     "agency",
     "office",
+
+    # Addresses / locations
     "address",
+    "taluka",
+    "village",
+    "district",
+    "road",
+    "marg",
+    "lane",
+    "street",
+    "nagar",
+    "industrial",
+    "facility",
+    "park",
+    "complex",
+    "east",
+    "west",
+    "north",
+    "south",
+    "mumbai",
+    "pune",
+    "delhi",
+    "maharashtra",
+    "india",
+
+    # Financial/document terms
     "account",
     "amount",
     "price",
@@ -98,6 +123,25 @@ PERSON_NON_NAME_WORDS = {
     "promoters",
     "director",
     "directors",
+    "shares",
+    "share",
+    "equity",
+    "email",
+    "telephone",
+    "mobile",
+    "phone",
+    "contact",
+    "transfer",
+    "agents",
+    "agent",
+    "identification",
+    "dp",
+    "id",
+    "sebi",
+    "registration",
+    "number",
+
+    # Document language
     "cagr",
     "margin",
     "tax",
@@ -118,12 +162,13 @@ PERSON_NON_NAME_WORDS = {
     "absolute",
     "responsibility",
     "information",
-    "registration",
-    "number",
     "compliance",
     "officer",
-}
 
+    # Other
+    "showroom",
+    "chambers",
+}
 
 # Strong person-related context.
 PERSON_CONTEXT = re.compile(
@@ -428,9 +473,120 @@ def name_shape_score(value):
 
 def looks_like_person_name(value):
 
-    score, _ = name_shape_score(value)
+    value = re.sub(
+        r"\s+",
+        " ",
+        value.strip()
+    )
 
-    return score >= 4
+    lower = value.casefold()
+    words = value.split()
+
+    # ---------------------------------------------------------
+    # Basic checks
+    # ---------------------------------------------------------
+
+    if len(value) < 5 or len(value) > 60:
+        return False
+
+    if not 2 <= len(words) <= 5:
+        return False
+
+    # No numbers
+    if any(
+        char.isdigit()
+        for char in value
+    ):
+        return False
+
+    # No email / URL
+    if "@" in value:
+        return False
+
+    if "www." in lower:
+        return False
+
+    # No obvious document separators
+    if any(
+        char in value
+        for char in ["/", ":", "\t", "\n"]
+    ):
+        return False
+
+    # ---------------------------------------------------------
+    # Block obvious non-person phrases
+    # ---------------------------------------------------------
+
+    if lower in PERSON_BLOCKLIST:
+        return False
+
+    # ---------------------------------------------------------
+    # Reject candidates containing obvious non-person words
+    # ---------------------------------------------------------
+
+    lower_words = {
+        word.casefold().strip(".,'’-")
+        for word in words
+    }
+
+    bad_words = (
+        lower_words
+        & PERSON_NON_NAME_WORDS
+    )
+
+    if bad_words:
+        return False
+
+    # ---------------------------------------------------------
+    # Alphabetic ratio
+    # ---------------------------------------------------------
+
+    alpha_count = sum(
+        char.isalpha()
+        for char in value
+    )
+
+    if alpha_count / len(value) < 0.75:
+        return False
+
+    # ---------------------------------------------------------
+    # Capitalization
+    #
+    # Allow initials:
+    #
+    # Karunakar N. Bhandary
+    # R. K. Sharma
+    # ---------------------------------------------------------
+
+    valid_capitalized_words = 0
+
+    for word in words:
+
+        cleaned = word.strip(
+            ".,'’-"
+        )
+
+        if not cleaned:
+            continue
+
+        # Initial such as N.
+        if (
+            len(cleaned) == 1
+            and cleaned.isalpha()
+            and cleaned.isupper()
+        ):
+            valid_capitalized_words += 1
+            continue
+
+        # Normal name word
+        if cleaned[0].isupper():
+            valid_capitalized_words += 1
+
+    # Most words should look like proper names.
+    if valid_capitalized_words < 2:
+        return False
+
+    return True
 
 
 # ============================================================
@@ -676,9 +832,6 @@ def detect_ner_pii(text):
     accepted_persons = []
     rejected_persons = []
 
-    accepted_by_context = 0
-    accepted_by_ner = 0
-
     rejection_reasons = {}
 
     for entity in doc.ents:
@@ -704,6 +857,37 @@ def detect_ner_pii(text):
 
             total_person_candidates += 1
 
+            # ------------------------------------------------
+            # FIRST FILTER:
+            # Does this actually look like a person's name?
+            # ------------------------------------------------
+
+            if not looks_like_person_name(value):
+
+                rejected_persons.append({
+                    "value": value,
+                    "score": -10,
+                    "reasons": [
+                        "failed name-shape validation"
+                    ],
+                })
+
+                rejection_reasons[
+                    "failed name-shape validation"
+                ] = (
+                    rejection_reasons.get(
+                        "failed name-shape validation",
+                        0
+                    ) + 1
+                )
+
+                continue
+
+            # ------------------------------------------------
+            # SECOND FILTER:
+            # Context / confidence scoring
+            # ------------------------------------------------
+
             score, reasons = person_confidence(
                 text,
                 entity.start_char,
@@ -715,15 +899,11 @@ def detect_ner_pii(text):
 
             if accepted:
 
-                accepted_persons.append(
-                    {
-                        "value": value,
-                        "score": score,
-                        "reasons": reasons,
-                    }
-                )
-
-                accepted_by_ner += 1
+                accepted_persons.append({
+                    "value": value,
+                    "score": score,
+                    "reasons": reasons,
+                })
 
                 findings.append({
                     "type": "PERSON",
@@ -741,15 +921,12 @@ def detect_ner_pii(text):
 
             else:
 
-                rejected_persons.append(
-                    {
-                        "value": value,
-                        "score": score,
-                        "reasons": reasons,
-                    }
-                )
+                rejected_persons.append({
+                    "value": value,
+                    "score": score,
+                    "reasons": reasons,
+                })
 
-                # Count the main rejection reason
                 if reasons:
 
                     reason = reasons[-1]
@@ -789,7 +966,7 @@ def detect_ner_pii(text):
 
     print()
     print("=" * 60)
-    print("PERSON DETECTION SUMMARY")
+    print("PERSON NER AUDIT")
     print("=" * 60)
 
     print(
@@ -807,16 +984,9 @@ def detect_ner_pii(text):
         f"{len(rejected_persons)}"
     )
 
-    print()
-    print("Accepted names:")
-    print("-" * 60)
-
-    for person in accepted_persons:
-
-        print(
-            f"  {person['value']} "
-            f"(score={person['score']})"
-        )
+    # --------------------------------------------------------
+    # Rejection reasons
+    # --------------------------------------------------------
 
     print()
     print("Main rejection reasons:")
@@ -832,15 +1002,48 @@ def detect_ner_pii(text):
             f"  {count:3} × {reason}"
         )
 
+    # --------------------------------------------------------
+    # Accepted sample
+    # --------------------------------------------------------
+
     print()
-    print("Sample rejected candidates:")
+    print("Accepted PERSON candidates (first 30):")
     print("-" * 60)
 
-    for person in rejected_persons[:20]:
+    for person in accepted_persons[:30]:
 
         print(
-            f"  {person['value']} "
+            f"  ✓ {person['value']} "
             f"(score={person['score']})"
+        )
+
+    if len(accepted_persons) > 30:
+
+        print(
+            f"  ... and "
+            f"{len(accepted_persons) - 30} more"
+        )
+
+    # --------------------------------------------------------
+    # Rejected sample
+    # --------------------------------------------------------
+
+    print()
+    print("Rejected PERSON candidates (first 30):")
+    print("-" * 60)
+
+    for person in rejected_persons[:30]:
+
+        print(
+            f"  ✗ {person['value']} "
+            f"(score={person['score']})"
+        )
+
+    if len(rejected_persons) > 30:
+
+        print(
+            f"  ... and "
+            f"{len(rejected_persons) - 30} more"
         )
 
     print("=" * 60)
