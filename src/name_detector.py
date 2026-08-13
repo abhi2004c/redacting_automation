@@ -619,13 +619,17 @@ def looks_like_person_name(value):
             # ---------------------------------------------
             # Places / establishments
             # ---------------------------------------------
-
+            "electricals",
+            "apartment",
+            "colony",
+            "house",
             "hospital",
             "showroom",
             "chambers",
             "branch",
             "gymkhana",
             "monte",
+            "bo",
 
             # ---------------------------------------------
             # Organization / legal suffixes
