@@ -669,12 +669,17 @@ def detect_ner_pii(text):
 
     findings = []
 
-    print()
-    print("=" * 70)
-    print("PERSON CANDIDATE AUDIT")
-    print("=" * 70)
-
     seen_persons = set()
+
+    # Audit counters
+    total_person_candidates = 0
+    accepted_persons = []
+    rejected_persons = []
+
+    accepted_by_context = 0
+    accepted_by_ner = 0
+
+    rejection_reasons = {}
 
     for entity in doc.ents:
 
@@ -692,11 +697,12 @@ def detect_ner_pii(text):
                 value.casefold()
             )
 
-            # Avoid printing duplicate candidates.
             if normalized in seen_persons:
                 continue
 
             seen_persons.add(normalized)
+
+            total_person_candidates += 1
 
             score, reasons = person_confidence(
                 text,
@@ -705,23 +711,19 @@ def detect_ner_pii(text):
                 value
             )
 
-            # ------------------------------------------------
-            # Acceptance threshold
-            #
-            # >= 4 gives us a balance between precision
-            # and recall.
-            # ------------------------------------------------
-
             accepted = score >= 4
 
             if accepted:
 
-                print(
-                    f"[PERSON ACCEPT] "
-                    f"{value} "
-                    f"| score={score} "
-                    f"| {'; '.join(reasons)}"
+                accepted_persons.append(
+                    {
+                        "value": value,
+                        "score": score,
+                        "reasons": reasons,
+                    }
                 )
+
+                accepted_by_ner += 1
 
                 findings.append({
                     "type": "PERSON",
@@ -739,12 +741,27 @@ def detect_ner_pii(text):
 
             else:
 
-                print(
-                    f"[PERSON REJECT] "
-                    f"{value} "
-                    f"| score={score} "
-                    f"| {'; '.join(reasons)}"
+                rejected_persons.append(
+                    {
+                        "value": value,
+                        "score": score,
+                        "reasons": reasons,
+                    }
                 )
+
+                # Count the main rejection reason
+                if reasons:
+
+                    reason = reasons[-1]
+
+                    rejection_reasons[
+                        reason
+                    ] = (
+                        rejection_reasons.get(
+                            reason,
+                            0
+                        ) + 1
+                    )
 
         # ====================================================
         # ORGANIZATION
@@ -752,7 +769,9 @@ def detect_ner_pii(text):
 
         elif entity.label_ == "ORG":
 
-            if not looks_like_organization(value):
+            if not looks_like_organization(
+                value
+            ):
                 continue
 
             findings.append({
@@ -764,12 +783,67 @@ def detect_ner_pii(text):
                 "source": "ner",
             })
 
-    print("=" * 70)
+    # ========================================================
+    # SUMMARY
+    # ========================================================
+
+    print()
+    print("=" * 60)
+    print("PERSON DETECTION SUMMARY")
+    print("=" * 60)
+
     print(
-        f"PERSON candidates examined: "
-        f"{len(seen_persons)}"
+        f"Total PERSON candidates : "
+        f"{total_person_candidates}"
     )
-    print("=" * 70)
+
+    print(
+        f"Accepted                : "
+        f"{len(accepted_persons)}"
+    )
+
+    print(
+        f"Rejected                : "
+        f"{len(rejected_persons)}"
+    )
+
+    print()
+    print("Accepted names:")
+    print("-" * 60)
+
+    for person in accepted_persons:
+
+        print(
+            f"  {person['value']} "
+            f"(score={person['score']})"
+        )
+
+    print()
+    print("Main rejection reasons:")
+    print("-" * 60)
+
+    for reason, count in sorted(
+        rejection_reasons.items(),
+        key=lambda x: x[1],
+        reverse=True
+    ):
+
+        print(
+            f"  {count:3} × {reason}"
+        )
+
+    print()
+    print("Sample rejected candidates:")
+    print("-" * 60)
+
+    for person in rejected_persons[:20]:
+
+        print(
+            f"  {person['value']} "
+            f"(score={person['score']})"
+        )
+
+    print("=" * 60)
     print()
 
     return findings

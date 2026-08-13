@@ -1,3 +1,5 @@
+import re
+
 from docx import Document
 
 from detector import detect_regex_pii
@@ -45,7 +47,7 @@ def remove_overlaps(findings):
 def process_text(text, anonymizer):
 
     if not text.strip():
-        return text
+        return text, []
 
     findings = []
 
@@ -93,6 +95,16 @@ def process_text(text, anonymizer):
     )
 
     # ---------------------------------------------------------
+    # Keep a copy for the document-level audit.
+    #
+    # We need the original findings before replacing text.
+    # ---------------------------------------------------------
+
+    detected_findings = list(
+        findings
+    )
+
+    # ---------------------------------------------------------
     # Replace from RIGHT to LEFT
     #
     # This is important because replacing text from
@@ -121,7 +133,187 @@ def process_text(text, anonymizer):
             + result[finding["end"]:]
         )
 
-    return result
+    # ---------------------------------------------------------
+    # Return BOTH:
+    #
+    # 1. processed text
+    # 2. what was detected
+    # ---------------------------------------------------------
+
+    return result, detected_findings
+
+
+def print_detection_summary(all_findings):
+
+    print()
+    print("=" * 60)
+    print("FINAL DETECTION SUMMARY")
+    print("=" * 60)
+
+    categories = [
+        "PERSON",
+        "ORGANIZATION",
+        "EMAIL",
+        "PHONE",
+        "ADDRESS",
+        "SSN",
+        "CREDIT_CARD",
+        "DATE",
+        "IP_ADDRESS",
+    ]
+
+    # ---------------------------------------------------------
+    # Category totals
+    # ---------------------------------------------------------
+
+    for category in categories:
+
+        category_findings = [
+            finding
+            for finding in all_findings
+            if finding.get("type") == category
+        ]
+
+        unique_values = {}
+
+        for finding in category_findings:
+
+            value = re.sub(
+                r"\s+",
+                " ",
+                finding.get(
+                    "value",
+                    ""
+                ).strip()
+            )
+
+            if not value:
+                continue
+
+            key = value.casefold()
+
+            if key not in unique_values:
+
+                unique_values[key] = value
+
+        print(
+            f"{category:<15}: "
+            f"{len(unique_values)}"
+        )
+
+    # ---------------------------------------------------------
+    # PERSON details
+    # ---------------------------------------------------------
+
+    person_findings = [
+        finding
+        for finding in all_findings
+        if finding.get("type") == "PERSON"
+    ]
+
+    unique_persons = {}
+
+    for finding in person_findings:
+
+        value = re.sub(
+            r"\s+",
+            " ",
+            finding.get(
+                "value",
+                ""
+            ).strip()
+        )
+
+        if not value:
+            continue
+
+        key = value.casefold()
+
+        if key not in unique_persons:
+
+            unique_persons[key] = {
+                "value": value,
+                "source": finding.get(
+                    "source",
+                    "unknown"
+                ),
+                "confidence": finding.get(
+                    "confidence",
+                    "unknown"
+                ),
+            }
+
+    print()
+    print("PERSON DETAILS")
+    print("-" * 60)
+
+    print(
+        f"Unique persons detected: "
+        f"{len(unique_persons)}"
+    )
+
+    # ---------------------------------------------------------
+    # Detection source counts
+    # ---------------------------------------------------------
+
+    source_counts = {}
+
+    for person in unique_persons.values():
+
+        source = person["source"]
+
+        source_counts[source] = (
+            source_counts.get(
+                source,
+                0
+            ) + 1
+        )
+
+    if source_counts:
+
+        print()
+        print("Detection sources:")
+
+        for source, count in sorted(
+            source_counts.items()
+        ):
+
+            print(
+                f"  {source:<15}: "
+                f"{count}"
+            )
+
+    # ---------------------------------------------------------
+    # Show detected names
+    #
+    # Limit this to 30 so the terminal doesn't become huge.
+    # ---------------------------------------------------------
+
+    print()
+    print(
+        "Detected PERSON names "
+        "(first 30):"
+    )
+
+    for person in list(
+        unique_persons.values()
+    )[:30]:
+
+        print(
+            f"  - {person['value']} "
+            f"[{person['source']}]"
+        )
+
+    if len(unique_persons) > 30:
+
+        print(
+            f"  ... and "
+            f"{len(unique_persons) - 30} "
+            f"more"
+        )
+
+    print("=" * 60)
+    print()
 
 
 def redact_docx(
@@ -130,7 +322,15 @@ def redact_docx(
     anonymizer
 ):
 
-    document = Document(input_path)
+    document = Document(
+        input_path
+    )
+
+    # ---------------------------------------------------------
+    # Store ALL detections from the entire document.
+    # ---------------------------------------------------------
+
+    all_findings = []
 
     # ---------------------------------------------------------
     # Normal paragraphs
@@ -138,9 +338,15 @@ def redact_docx(
 
     for paragraph in document.paragraphs:
 
-        paragraph.text = process_text(
+        processed_text, findings = process_text(
             paragraph.text,
             anonymizer
+        )
+
+        paragraph.text = processed_text
+
+        all_findings.extend(
+            findings
         )
 
     # ---------------------------------------------------------
@@ -153,11 +359,29 @@ def redact_docx(
 
             for cell in row.cells:
 
-                cell.text = process_text(
+                processed_text, findings = process_text(
                     cell.text,
                     anonymizer
                 )
 
+                cell.text = processed_text
+
+                all_findings.extend(
+                    findings
+                )
+
+    # ---------------------------------------------------------
+    # Save document
+    # ---------------------------------------------------------
+
     document.save(
         output_path
+    )
+
+    # ---------------------------------------------------------
+    # Print ONE summary for the whole document.
+    # ---------------------------------------------------------
+
+    print_detection_summary(
+        all_findings
     )
