@@ -1,0 +1,3 @@
+python-docx
+Faker
+spacy
