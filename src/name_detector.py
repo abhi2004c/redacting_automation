@@ -470,20 +470,35 @@ def name_shape_score(value):
 
     return score, reasons
 
-
 def looks_like_person_name(value):
+
+    # ---------------------------------------------------------
+    # Clean harmless trailing symbols
+    #
+    # Example:
+    # Rajesh Kushal Hegde*^&
+    #
+    # becomes:
+    # Rajesh Kushal Hegde
+    # ---------------------------------------------------------
+
+    value = re.sub(
+        r"[*^&§†‡]+$",
+        "",
+        value.strip()
+    )
 
     value = re.sub(
         r"\s+",
         " ",
-        value.strip()
+        value
     )
 
     lower = value.casefold()
     words = value.split()
 
     # ---------------------------------------------------------
-    # Basic checks
+    # Basic length checks
     # ---------------------------------------------------------
 
     if len(value) < 5 or len(value) > 60:
@@ -492,36 +507,72 @@ def looks_like_person_name(value):
     if not 2 <= len(words) <= 5:
         return False
 
-    # No numbers
+    # ---------------------------------------------------------
+    # Reject numbers
+    # ---------------------------------------------------------
+
     if any(
         char.isdigit()
         for char in value
     ):
         return False
 
-    # No email / URL
+    # ---------------------------------------------------------
+    # Reject emails / URLs
+    # ---------------------------------------------------------
+
     if "@" in value:
         return False
 
     if "www." in lower:
         return False
 
-    # No obvious document separators
+    # ---------------------------------------------------------
+    # Reject obvious separators
+    # ---------------------------------------------------------
+
     if any(
         char in value
-        for char in ["/", ":", "\t", "\n"]
+        for char in [
+            "/",
+            ":",
+            "\t",
+            "\n",
+        ]
     ):
         return False
 
     # ---------------------------------------------------------
-    # Exact blocked phrases
+    # Reject exact blocked phrases
     # ---------------------------------------------------------
 
     if lower in PERSON_BLOCKLIST:
         return False
 
     # ---------------------------------------------------------
-    # Normalize individual words
+    # Reject document section labels
+    #
+    # Examples:
+    #
+    # B. Non-GAAP Measures
+    # C. Operational
+    #
+    # But this still allows:
+    #
+    # R. K. Sharma
+    # ---------------------------------------------------------
+
+    if (
+        len(words) >= 2
+        and re.match(
+            r"^[A-Za-z]\.?$",
+            words[0]
+        )
+    ):
+        return False
+
+    # ---------------------------------------------------------
+    # Normalize words
     # ---------------------------------------------------------
 
     lower_words = {
@@ -533,15 +584,15 @@ def looks_like_person_name(value):
 
     # ---------------------------------------------------------
     # Strong non-person vocabulary
-    #
-    # These are NOT names. They are words commonly appearing
-    # in addresses, organizations, documents, locations, etc.
     # ---------------------------------------------------------
 
     non_person_words = (
         PERSON_NON_NAME_WORDS
         | {
-            # Places / addresses
+            # ---------------------------------------------
+            # Locations / addresses
+            # ---------------------------------------------
+
             "taluka",
             "village",
             "district",
@@ -558,12 +609,39 @@ def looks_like_person_name(value):
             "west",
             "north",
             "south",
+            "mumbai",
+            "pune",
+            "delhi",
+            "maharashtra",
+            "india",
+            "khed",
+
+            # ---------------------------------------------
+            # Places / establishments
+            # ---------------------------------------------
+
             "hospital",
             "showroom",
             "chambers",
             "branch",
+            "gymkhana",
+            "monte",
 
+            # ---------------------------------------------
+            # Organization / legal suffixes
+            # ---------------------------------------------
+
+            "huf",
+            "llp",
+            "ltd",
+            "limited",
+            "inc",
+            "llc",
+
+            # ---------------------------------------------
             # Document terminology
+            # ---------------------------------------------
+
             "acknowledgement",
             "acknowledgment",
             "schedule",
@@ -583,7 +661,10 @@ def looks_like_person_name(value):
             "registration",
             "number",
 
+            # ---------------------------------------------
             # Financial / legal terminology
+            # ---------------------------------------------
+
             "bidder",
             "bidders",
             "bid",
@@ -604,7 +685,10 @@ def looks_like_person_name(value):
             "agents",
             "agent",
 
+            # ---------------------------------------------
             # Technical / infrastructure terms
+            # ---------------------------------------------
+
             "kilometers",
             "kilometres",
             "volt",
@@ -615,15 +699,22 @@ def looks_like_person_name(value):
             "photovoltaic",
             "photo",
             "voltaic",
+            "circuit",
 
-            # Publication / media terms
+            # ---------------------------------------------
+            # Publication / media terminology
+            # ---------------------------------------------
+
             "widely",
             "circulated",
             "marathi",
             "daily",
             "newspaper",
 
-            # Other document phrases
+            # ---------------------------------------------
+            # Other document language
+            # ---------------------------------------------
+
             "parents",
             "information",
             "responsibility",
@@ -641,12 +732,19 @@ def looks_like_person_name(value):
             "listed",
             "listing",
 
+            # ---------------------------------------------
             # Indian administrative / program terminology
+            # ---------------------------------------------
+
             "gram",
             "urja",
             "suraksha",
         }
     )
+
+    # ---------------------------------------------------------
+    # Reject if ANY strong non-person word is present
+    # ---------------------------------------------------------
 
     bad_words = (
         lower_words
@@ -654,6 +752,54 @@ def looks_like_person_name(value):
     )
 
     if bad_words:
+        return False
+
+    # ---------------------------------------------------------
+    # Reject obvious location compounds
+    #
+    # Examples:
+    #
+    # Chakan Taluka-Khed
+    # Deccan Gymkhana
+    # Buena Monte
+    # ---------------------------------------------------------
+
+    if re.search(
+        r"\b(?:"
+        r"taluka|"
+        r"district|"
+        r"khed|"
+        r"marg|"
+        r"road|"
+        r"lane|"
+        r"gymkhana|"
+        r"monte"
+        r")\b",
+        lower
+    ):
+        return False
+
+    # ---------------------------------------------------------
+    # Reject organization/legal suffixes explicitly
+    #
+    # This catches cases where punctuation prevents the
+    # normal word matching above.
+    # ---------------------------------------------------------
+
+    if any(
+        word.casefold().strip(
+            ".,'’-"
+        )
+        in {
+            "huf",
+            "llp",
+            "ltd",
+            "limited",
+            "inc",
+            "llc",
+        }
+        for word in words
+    ):
         return False
 
     # ---------------------------------------------------------
@@ -665,7 +811,10 @@ def looks_like_person_name(value):
         for char in value
     )
 
-    if alpha_count / len(value) < 0.75:
+    if (
+        len(value) == 0
+        or alpha_count / len(value) < 0.75
+    ):
         return False
 
     # ---------------------------------------------------------
@@ -690,7 +839,14 @@ def looks_like_person_name(value):
         if not cleaned:
             continue
 
-        # Initial: N.
+        # ---------------------------------------------
+        # Initial:
+        #
+        # N.
+        # R.
+        # K.
+        # ---------------------------------------------
+
         if (
             len(cleaned) == 1
             and cleaned.isalpha()
@@ -699,38 +855,42 @@ def looks_like_person_name(value):
             capitalized_words += 1
             continue
 
+        # ---------------------------------------------
         # Normal capitalized word
+        # ---------------------------------------------
+
         if cleaned[0].isupper():
             capitalized_words += 1
 
+    # Need at least two name-like components
     if capitalized_words < 2:
         return False
 
     # ---------------------------------------------------------
-    # POS / linguistic structure
+    # Linguistic / POS validation
     #
-    # A real name should generally contain proper nouns.
-    #
-    # Examples:
+    # Real names usually contain proper nouns:
     #
     # Sarthak Malvadkar
-    #    PROPN       PROPN
+    # PROPN    PROPN
     #
     # Karunakar N. Bhandary
-    #    PROPN    X   PROPN
+    # PROPN    X  PROPN
     #
     # While:
     #
     # Air Conditioning
-    #    NOUN       NOUN
+    # NOUN       NOUN
     #
     # Parents Branch
-    #    NOUN    NOUN
+    # NOUN    NOUN
     # ---------------------------------------------------------
 
     try:
 
-        candidate_doc = nlp(value)
+        candidate_doc = nlp(
+            value
+        )
 
         proper_nouns = sum(
             1
@@ -742,16 +902,35 @@ def looks_like_person_name(value):
             1
             for token in candidate_doc
             if (
-                token.text.rstrip(".").isalpha()
-                and len(token.text.rstrip(".")) == 1
-                and token.text.rstrip(".").isupper()
+                token.text
+                .rstrip(".")
+                .isalpha()
+                and len(
+                    token.text.rstrip(".")
+                ) == 1
+                and token.text
+                .rstrip(".")
+                .isupper()
             )
         )
 
-        # At least two proper-name components,
-        # allowing one initial.
+        # ---------------------------------------------
+        # Normal person name
+        #
+        # Example:
+        # Sarthak Malvadkar
+        # Karunakar N. Bhandary
+        # ---------------------------------------------
+
         if proper_nouns >= 2:
             return True
+
+        # ---------------------------------------------
+        # Name containing initials
+        #
+        # Example:
+        # R. K. Sharma
+        # ---------------------------------------------
 
         if (
             proper_nouns >= 1
@@ -763,9 +942,12 @@ def looks_like_person_name(value):
         return False
 
     except Exception:
-        # If POS analysis fails, fall back to the
-        # capitalization/name-shape checks above.
-        return capitalized_words >= 2
+
+        # If POS analysis fails, use the basic
+        # capitalization validation as fallback.
+        return (
+            capitalized_words >= 2
+        )
 
 # ============================================================
 # PERSON CONFIDENCE
