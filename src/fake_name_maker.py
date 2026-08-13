@@ -238,10 +238,15 @@ class Anonymizer:
     ):
 
         """
-        Keep generating a fake value until it is unique.
+        Generate a unique fake value.
+
+        A maximum number of attempts prevents the
+        anonymizer from getting stuck forever.
         """
 
-        while True:
+        MAX_ATTEMPTS = 1000
+
+        for _ in range(MAX_ATTEMPTS):
 
             value = self.generate_fake_value(
                 pii_type
@@ -250,6 +255,12 @@ class Anonymizer:
             if value not in self.generated_values:
 
                 return value
+
+        raise RuntimeError(
+            "Could not generate a unique fake value "
+            f"for PII type '{pii_type}' after "
+            f"{MAX_ATTEMPTS} attempts."
+        )
 
     # ---------------------------------------------------------
     # GENERATE FAKE VALUE
@@ -301,6 +312,17 @@ class Anonymizer:
         if pii_type == "ORGANIZATION":
 
             return fake.company()
+
+        # -----------------------------------------------------
+        # ADDRESS
+        # -----------------------------------------------------
+
+        if pii_type == "ADDRESS":
+
+            return fake.address().replace(
+                "\n",
+                ", "
+            )
 
         # -----------------------------------------------------
         # DATE / DOB
