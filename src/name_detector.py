@@ -236,42 +236,52 @@ ORG_DOCUMENT_TERMS = (
 
 def looks_like_person_name(value):
 
-    value = re.sub(r"\s+", " ", value.strip())
+    value = re.sub(
+        r"\s+",
+        " ",
+        value.strip()
+    )
+
     lower = value.casefold()
 
+    # Basic length
     if len(value) < 5 or len(value) > 60:
         return False
 
+    # No numbers
     if any(char.isdigit() for char in value):
         return False
 
+    # No email / URL
     if "@" in value or "www." in lower:
         return False
 
+    # No obvious separators
     if any(
         char in value
         for char in ["/", ":", "\t", "\n"]
     ):
         return False
 
-    if lower in PERSON_BLOCKLIST:
-        return False
-
-    if any(word in PERSON_NON_NAME_WORDS for word in words):
-        return False
-
+    # Split into words BEFORE using words
     words = lower.split()
 
+    # Reasonable number of words
     if not 2 <= len(words) <= 5:
         return False
 
-    # Reject names containing document/company terminology.
+    # Known non-person phrases
+    if lower in PERSON_BLOCKLIST:
+        return False
+
+    # Words that strongly suggest this isn't a person's name
     if any(
         word in PERSON_NON_NAME_WORDS
         for word in words
     ):
         return False
 
+    # Mostly alphabetic
     alpha_count = sum(
         char.isalpha()
         for char in value
@@ -281,7 +291,6 @@ def looks_like_person_name(value):
         return False
 
     return True
-
 
 def person_confidence(text, start, end):
 
