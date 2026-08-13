@@ -82,8 +82,9 @@ def process_text(text, anonymizer):
     findings = [
         finding
         for finding in findings
-        if finding["value"]
-        not in anonymizer.generated_values
+        if not anonymizer.is_generated_value(
+            finding["value"]
+        )
     ]
 
     # ---------------------------------------------------------
@@ -141,6 +142,22 @@ def process_text(text, anonymizer):
     # ---------------------------------------------------------
 
     return result, detected_findings
+
+def is_generated_value(self, value):
+
+    normalized_value = self.normalize(
+        value
+    )
+
+    for generated in self.generated_values:
+
+        if self.normalize(
+            generated
+        ) == normalized_value:
+
+            return True
+
+    return False
 
 
 def print_detection_summary(all_findings):

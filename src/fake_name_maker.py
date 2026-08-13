@@ -75,6 +75,38 @@ class Anonymizer:
     # LOAD EXISTING MAP
     # ---------------------------------------------------------
 
+    def is_generated_value(self, value):
+        """
+        Check whether a value is already a generated fake value.
+
+        Handles both exact matches and cases where the detector
+        extracts only part of a generated value.
+        """
+
+        normalized_value = self.normalize(value)
+
+        if not normalized_value:
+            return False
+
+        for generated in self.generated_values:
+
+            normalized_generated = self.normalize(
+                generated
+            )
+
+            # Exact match
+            if normalized_value == normalized_generated:
+                return True
+
+            # Detector captured part of generated value
+            if (
+                normalized_value in normalized_generated
+                or normalized_generated in normalized_value
+            ):
+                return True
+
+        return False
+    
     def load_map(self):
 
         """

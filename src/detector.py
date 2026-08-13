@@ -206,12 +206,74 @@ ADDRESS_PATTERN = re.compile(
     [:,\-]?
     \s*
     (
-        [^.\n;]{5,200}
+        (?=
+            (?:[^.\n;]{0,250})
+            \b
+            (?:
+                village
+                |
+                taluka
+                |
+                district
+                |
+                road
+                |
+                marg
+                |
+                lane
+                |
+                nagar
+                |
+                colony
+                |
+                apartment
+                |
+                tower
+                |
+                building
+                |
+                floor
+                |
+                sector
+                |
+                pune
+                |
+                mumbai
+                |
+                maharashtra
+                |
+                india
+                |
+                pincode
+                |
+                pin
+            )
+        )
+        [^.\n;]{5,250}?
+        (?:
+            \b\d{6}\b
+            |
+            \b(?:Maharashtra|India)\b
+        )
     )
     """,
     re.IGNORECASE | re.VERBOSE
 )
 
+ADDRESS_STRUCTURED_PATTERN = re.compile(
+    r"""
+    (
+        \b
+        \d+(?:/\d+)?(?:\s*,\s*\d+(?:/\d+)?)*
+        [^.\n;]{0,220}?
+        \b
+        \d{6}
+        \b
+        (?:[^.\n;]{0,80})?
+    )
+    """,
+    re.IGNORECASE | re.VERBOSE
+)
 
 # =============================================================
 # ADDRESS CONTEXT WORDS
@@ -334,13 +396,19 @@ def looks_like_address(value):
 
 
 def clean_address(value):
-    """
-    Clean an address captured after an address label.
-    """
 
     value = value.strip()
 
-    # Remove trailing punctuation
+    # Stop address before telephone/contact information
+    value = re.split(
+        r"\b(?:telephone|tel|phone|mobile|mob)\b\s*[:\-]?",
+        value,
+        maxsplit=1,
+        flags=re.IGNORECASE
+    )[0]
+
+    value = value.strip()
+
     value = value.rstrip(
         " ,:-"
     )
@@ -483,10 +551,10 @@ def detect_regex_pii(text):
         })
 
     # =========================================================
-    # PHYSICAL ADDRESS
+    # STRUCTURED ADDRESS
     # =========================================================
 
-    for match in ADDRESS_PATTERN.finditer(text):
+    for match in ADDRESS_STRUCTURED_PATTERN.finditer(text):
 
         address = clean_address(
             match.group(1)
