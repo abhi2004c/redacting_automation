@@ -1,8 +1,6 @@
 import re
 
 
-# These are generic document labels.
-# We are NOT hard-coding any actual person names.
 PERSON_LABELS = [
     r"contact\s+person",
     r"name\s+of\s+promoter",
@@ -19,16 +17,12 @@ PERSON_LABELS = [
 ]
 
 
-# IMPORTANT:
-#
-# Do NOT use IGNORECASE here.
-#
-# A person's name normally starts with capitalized words.
 PERSON_LABEL_PATTERN = re.compile(
     r"(?:"
     + "|".join(PERSON_LABELS)
     + r")"
     r"\s*[:\-]\s*"
+    r"(?:\n\s*)?"
     r"([A-Z][A-Za-z.'’-]+"
     r"(?:\s+[A-Z][A-Za-z.'’-]+){1,4})"
 )
@@ -44,22 +38,22 @@ def looks_like_name(value):
 
     words = value.split()
 
-    # A reasonable person's name.
     if not 2 <= len(words) <= 5:
         return False
 
     if len(value) > 70:
         return False
 
-    # No numbers.
-    if any(char.isdigit() for char in value):
+    if any(
+        char.isdigit()
+        for char in value
+    ):
         return False
 
-    # No email.
     if "@" in value:
         return False
 
-    blocked_words = {
+    blocked = {
         "company",
         "website",
         "office",
@@ -67,39 +61,6 @@ def looks_like_name(value):
         "government",
         "authority",
         "bank",
-        "dated",
-        "august",
-        "september",
-        "october",
-        "november",
-        "december",
-        "january",
-        "february",
-        "march",
-        "april",
-        "may",
-        "june",
-        "july",
-        "general",
-        "foreign",
-        "trade",
-        "future",
-        "always",
-        "continue",
-        "continued",
-        "act",
-        "acted",
-        "relation",
-        "interested",
-        "listed",
-        "listing",
-        "absolute",
-        "responsibility",
-        "information",
-        "registration",
-        "number",
-        "compliance",
-        "officer",
         "exchange",
         "limited",
         "private",
@@ -126,6 +87,8 @@ def looks_like_name(value):
         "registration",
         "number",
         "information",
+        "compliance",
+        "officer",
     }
 
     lower_words = {
@@ -133,7 +96,7 @@ def looks_like_name(value):
         for word in words
     }
 
-    if lower_words & blocked_words:
+    if lower_words & blocked:
         return False
 
     return True
@@ -141,22 +104,12 @@ def looks_like_name(value):
 
 def split_person_candidates(value):
 
-    """
-    Handles cases such as:
-
-        Kishan Rastogi/Abhijit Diwan
-
-        Kishan Rastogi and Abhijit Diwan
-    """
-
-    parts = re.split(
-        r"\s*/\s*|\s+\band\b\s+",
-        value
-    )
-
     return [
         part.strip()
-        for part in parts
+        for part in re.split(
+            r"\s*/\s*|\s+\band\b\s+",
+            value
+        )
         if part.strip()
     ]
 
@@ -202,6 +155,7 @@ def detect_context_persons(text):
                 "end": end,
                 "confidence": "HIGH",
                 "source": "context",
+                "score": 7,
             })
 
             search_position = (
