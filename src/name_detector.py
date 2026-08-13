@@ -514,24 +514,143 @@ def looks_like_person_name(value):
         return False
 
     # ---------------------------------------------------------
-    # Block obvious non-person phrases
+    # Exact blocked phrases
     # ---------------------------------------------------------
 
     if lower in PERSON_BLOCKLIST:
         return False
 
     # ---------------------------------------------------------
-    # Reject candidates containing obvious non-person words
+    # Normalize individual words
     # ---------------------------------------------------------
 
     lower_words = {
-        word.casefold().strip(".,'’-")
+        word.casefold().strip(
+            ".,'’-"
+        )
         for word in words
     }
 
+    # ---------------------------------------------------------
+    # Strong non-person vocabulary
+    #
+    # These are NOT names. They are words commonly appearing
+    # in addresses, organizations, documents, locations, etc.
+    # ---------------------------------------------------------
+
+    non_person_words = (
+        PERSON_NON_NAME_WORDS
+        | {
+            # Places / addresses
+            "taluka",
+            "village",
+            "district",
+            "road",
+            "marg",
+            "lane",
+            "street",
+            "nagar",
+            "industrial",
+            "facility",
+            "park",
+            "complex",
+            "east",
+            "west",
+            "north",
+            "south",
+            "hospital",
+            "showroom",
+            "chambers",
+            "branch",
+
+            # Document terminology
+            "acknowledgement",
+            "acknowledgment",
+            "schedule",
+            "annexure",
+            "chapter",
+            "section",
+            "clause",
+            "paragraph",
+            "page",
+            "pages",
+            "email",
+            "telephone",
+            "mobile",
+            "phone",
+            "website",
+            "identification",
+            "registration",
+            "number",
+
+            # Financial / legal terminology
+            "bidder",
+            "bidders",
+            "bid",
+            "offer",
+            "shares",
+            "share",
+            "equity",
+            "promoter",
+            "promoters",
+            "director",
+            "directors",
+            "shareholder",
+            "shareholders",
+            "defaulter",
+            "wilful",
+            "default",
+            "transfer",
+            "agents",
+            "agent",
+
+            # Technical / infrastructure terms
+            "kilometers",
+            "kilometres",
+            "volt",
+            "volts",
+            "amperes",
+            "mega",
+            "conditioning",
+            "photovoltaic",
+            "photo",
+            "voltaic",
+
+            # Publication / media terms
+            "widely",
+            "circulated",
+            "marathi",
+            "daily",
+            "newspaper",
+
+            # Other document phrases
+            "parents",
+            "information",
+            "responsibility",
+            "compliance",
+            "officer",
+            "general",
+            "foreign",
+            "trade",
+            "future",
+            "always",
+            "continue",
+            "continued",
+            "relation",
+            "interested",
+            "listed",
+            "listing",
+
+            # Indian administrative / program terminology
+            "gram",
+            "urja",
+            "suraksha",
+        }
+    )
+
     bad_words = (
         lower_words
-        & PERSON_NON_NAME_WORDS
+        & non_person_words
     )
 
     if bad_words:
@@ -552,13 +671,15 @@ def looks_like_person_name(value):
     # ---------------------------------------------------------
     # Capitalization
     #
-    # Allow initials:
+    # Supports:
     #
+    # Sarthak Malvadkar
     # Karunakar N. Bhandary
     # R. K. Sharma
+    # KUSHAL HEGDE
     # ---------------------------------------------------------
 
-    valid_capitalized_words = 0
+    capitalized_words = 0
 
     for word in words:
 
@@ -569,25 +690,82 @@ def looks_like_person_name(value):
         if not cleaned:
             continue
 
-        # Initial such as N.
+        # Initial: N.
         if (
             len(cleaned) == 1
             and cleaned.isalpha()
             and cleaned.isupper()
         ):
-            valid_capitalized_words += 1
+            capitalized_words += 1
             continue
 
-        # Normal name word
+        # Normal capitalized word
         if cleaned[0].isupper():
-            valid_capitalized_words += 1
+            capitalized_words += 1
 
-    # Most words should look like proper names.
-    if valid_capitalized_words < 2:
+    if capitalized_words < 2:
         return False
 
-    return True
+    # ---------------------------------------------------------
+    # POS / linguistic structure
+    #
+    # A real name should generally contain proper nouns.
+    #
+    # Examples:
+    #
+    # Sarthak Malvadkar
+    #    PROPN       PROPN
+    #
+    # Karunakar N. Bhandary
+    #    PROPN    X   PROPN
+    #
+    # While:
+    #
+    # Air Conditioning
+    #    NOUN       NOUN
+    #
+    # Parents Branch
+    #    NOUN    NOUN
+    # ---------------------------------------------------------
 
+    try:
+
+        candidate_doc = nlp(value)
+
+        proper_nouns = sum(
+            1
+            for token in candidate_doc
+            if token.pos_ == "PROPN"
+        )
+
+        initials = sum(
+            1
+            for token in candidate_doc
+            if (
+                token.text.rstrip(".").isalpha()
+                and len(token.text.rstrip(".")) == 1
+                and token.text.rstrip(".").isupper()
+            )
+        )
+
+        # At least two proper-name components,
+        # allowing one initial.
+        if proper_nouns >= 2:
+            return True
+
+        if (
+            proper_nouns >= 1
+            and initials >= 1
+            and len(words) >= 2
+        ):
+            return True
+
+        return False
+
+    except Exception:
+        # If POS analysis fails, fall back to the
+        # capitalization/name-shape checks above.
+        return capitalized_words >= 2
 
 # ============================================================
 # PERSON CONFIDENCE
